@@ -1,0 +1,170 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import CodeBlock from "../../components/CodeBlock.astro";
+import PageNavigation from "../../components/PageNavigation.astro";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../components/starwind/tabs";
+
+const spmUmbrella = `dependencies: [
+    .package(url: "https://github.com/stefanprojchev/ForgePush.git", from: "1.0.0")
+]
+
+targets: [
+    .target(
+        name: "YourApp",
+        dependencies: [
+            "ForgePushPermission",
+            "ForgePushToken",
+            "ForgeSilentPush",
+            "ForgeVisiblePush",
+        ]
+    )
+]`;
+
+const spmIndividual = `// Only import what you need
+targets: [
+    .target(
+        name: "YourApp",
+        dependencies: [
+            "ForgePushPermission",
+            "ForgeSilentPush",
+        ]
+    )
+]`;
+
+const cliCommand = `swift package add-dependency https://github.com/stefanprojchev/ForgePush.git --from 1.0.0`;
+
+const appDelegateWiring = `import UIKit
+import ForgePushPermission
+import ForgePushToken
+import ForgeSilentPush
+import ForgeVisiblePush
+
+@main
+class AppDelegate: UIResponder, UIApplicationDelegate {
+    let tokenManager = PushTokenManager()
+    let silentRouter = SilentPushRouter(
+        connectivity: connectivityObserver,
+        protectedData: protectedDataObserver
+    )
+    let visibleRouter = VisiblePushRouter(
+        connectivity: connectivityObserver,
+        protectedData: protectedDataObserver
+    )
+
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
+    ) -> Bool {
+        // Add handlers
+        silentRouter.addHandler(TaskSyncHandler())
+        visibleRouter.addHandler(TaskTappedHandler())
+
+        // Request permission and register for remote notifications
+        Task {
+            let permission = PushPermission()
+            try await permission.request()
+            await tokenManager.registerForRemoteNotifications()
+        }
+
+        return true
+    }
+
+    func application(_ application: UIApplication,
+        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        tokenManager.didRegister(deviceToken: deviceToken)
+    }
+
+    func application(_ application: UIApplication,
+        didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        tokenManager.didFailToRegister(error: error)
+    }
+
+    func application(_ application: UIApplication,
+        didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+        fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        silentRouter.handlePush(payload: userInfo, completionHandler: completionHandler)
+    }
+}`;
+---
+
+<DocsLayout title="Getting Started" section="docs">
+  <h1>Getting Started</h1>
+  <p class="text-lg text-muted-foreground mt-1 mb-8">ForgePush is a collection of four focused libraries for iOS push notification management. Use them all together or pick only what you need.</p>
+
+  <h2>Libraries</h2>
+  <div class="not-prose my-6 grid gap-3 sm:grid-cols-2">
+    <div class="rounded-lg border border-border bg-card/60 p-4">
+      <p class="font-mono text-sm font-semibold text-foreground">ForgePushPermission</p>
+      <p class="mt-1 text-[13px] text-muted-foreground">Request authorization, check status, and open Settings.</p>
+    </div>
+    <div class="rounded-lg border border-border bg-card/60 p-4">
+      <p class="font-mono text-sm font-semibold text-foreground">ForgePushToken</p>
+      <p class="mt-1 text-[13px] text-muted-foreground">Bridge APNs registration callbacks into a token property and async stream.</p>
+    </div>
+    <div class="rounded-lg border border-border bg-card/60 p-4">
+      <p class="font-mono text-sm font-semibold text-foreground">ForgeSilentPush</p>
+      <p class="mt-1 text-[13px] text-muted-foreground">Route background/silent pushes to registered handlers with aggregate result reporting.</p>
+    </div>
+    <div class="rounded-lg border border-border bg-card/60 p-4">
+      <p class="font-mono text-sm font-semibold text-foreground">ForgeVisiblePush</p>
+      <p class="mt-1 text-[13px] text-muted-foreground">Route foreground and tapped notification responses to the appropriate handler.</p>
+    </div>
+  </div>
+
+  <h2>Requirements</h2>
+  <ul>
+    <li>iOS 18+</li>
+    <li>Swift 6.3+ (Xcode 26 or later)</li>
+  </ul>
+
+  <h2>Installation</h2>
+
+  <Tabs defaultValue="xcode" syncKey="install" class="not-prose my-6">
+    <TabsList>
+      <TabsTrigger value="xcode">Xcode UI</TabsTrigger>
+      <TabsTrigger value="package-swift">Package.swift</TabsTrigger>
+      <TabsTrigger value="cli">Swift CLI</TabsTrigger>
+    </TabsList>
+    <TabsContent value="xcode">
+      <div class="mt-4 space-y-2 text-[15px] text-foreground">
+        <ol class="list-decimal space-y-1.5 pl-5">
+          <li>Open your project in Xcode.</li>
+          <li>Go to <strong>File &rarr; Add Package Dependencies&hellip;</strong></li>
+          <li>Paste the repository URL: <code class="rounded bg-muted px-1.5 py-0.5 font-mono text-[13px]">https://github.com/stefanprojchev/ForgePush.git</code></li>
+          <li>Set the version rule to <strong>Up to Next Major</strong> from <code class="rounded bg-muted px-1.5 py-0.5 font-mono text-[13px]">1.0.0</code>.</li>
+          <li>Select the individual library targets you need and click <strong>Add Package</strong>.</li>
+        </ol>
+      </div>
+    </TabsContent>
+    <TabsContent value="package-swift">
+      <Tabs defaultValue="umbrella" syncKey="spm-style" class="not-prose">
+        <TabsList>
+          <TabsTrigger value="umbrella">All libraries</TabsTrigger>
+          <TabsTrigger value="individual">Individual</TabsTrigger>
+        </TabsList>
+        <TabsContent value="umbrella">
+          <CodeBlock code={spmUmbrella} title="Package.swift" />
+        </TabsContent>
+        <TabsContent value="individual">
+          <CodeBlock code={spmIndividual} title="Package.swift" />
+        </TabsContent>
+      </Tabs>
+    </TabsContent>
+    <TabsContent value="cli">
+      <CodeBlock code={cliCommand} lang="bash" title="Terminal" />
+    </TabsContent>
+  </Tabs>
+
+  <h2>AppDelegate Wiring</h2>
+  <p>All four libraries connect through standard <code>UIApplicationDelegate</code> and <code>UNUserNotificationCenterDelegate</code> callbacks. Wire them up once in your AppDelegate.</p>
+  <CodeBlock code={appDelegateWiring} title="AppDelegate.swift" />
+
+  <p class="rounded-lg border border-border bg-muted/50 p-4 text-sm">
+    <strong>Tip:</strong> When using ForgeInject, inject <code>PushTokenManager</code>, <code>SilentPushRouter</code>, and <code>VisiblePushRouter</code> as singletons and resolve them wherever you need access. See the <a href="examples/with-forge-inject">With ForgeInject</a> example.
+  </p>
+
+  <PageNavigation
+    nextHref="docs/permission"
+    nextLabel="ForgePushPermission"
+  />
+</DocsLayout>

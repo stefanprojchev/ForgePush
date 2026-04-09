@@ -1,0 +1,166 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import CodeBlock from "../../components/CodeBlock.astro";
+import PageNavigation from "../../components/PageNavigation.astro";
+
+const handlersCode = `import ForgeSilentPush
+import ForgeVisiblePush
+import UserNotifications
+
+// Silent push handler — runs in the background
+struct TaskSyncHandler: SilentPushHandler {
+    let id = "task-sync"
+
+    func matchesPayload(_ payload: [AnyHashable: Any]) -> Bool {
+        payload["type"] as? String == "task_sync"
+    }
+
+    func handle(_ payload: [AnyHashable: Any], context: SilentPushContext) async -> SilentPushResult {
+        guard context.protectedDataAvailable else { return .failed }
+        do {
+            try await TaskRepository.shared.syncFromRemote()
+            return .newData
+        } catch {
+            return .failed
+        }
+    }
+}
+
+// Visible push handler — fires when user taps a notification
+struct TaskTappedHandler: VisiblePushHandler {
+    let id = "task-tapped"
+
+    func matches(_ response: UNNotificationResponse) -> Bool {
+        let userInfo = response.notification.request.content.userInfo
+        return userInfo["type"] as? String == "task_reminder"
+    }
+
+    func handle(_ response: UNNotificationResponse, context: VisiblePushContext) async {
+        let userInfo = response.notification.request.content.userInfo
+        guard let taskId = userInfo["task_id"] as? String else { return }
+        await MainActor.run {
+            TaskFlowNavigator.shared.navigate(to: .task(id: taskId))
+        }
+    }
+}`;
+
+const appDelegateCode = `import UIKit
+import ForgePushPermission
+import ForgePushToken
+import ForgeSilentPush
+import ForgeVisiblePush
+
+@main
+class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+
+    // MARK: - Components
+
+    let tokenManager = PushTokenManager()
+    let silentRouter = SilentPushRouter(
+        connectivity: connectivityObserver,
+        protectedData: protectedDataObserver
+    )
+    let visibleRouter = VisiblePushRouter(
+        connectivity: connectivityObserver,
+        protectedData: protectedDataObserver
+    )
+
+    // MARK: - Launch
+
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
+    ) -> Bool {
+        // Register notification delegate
+        UNUserNotificationCenter.current().delegate = self
+
+        // Add handlers
+        silentRouter.addHandler(TaskSyncHandler())
+        visibleRouter.addHandler(TaskTappedHandler())
+
+        // Request permission and register for remote notifications
+        Task {
+            let permission = PushPermission()
+            try await permission.request()
+            await tokenManager.registerForRemoteNotifications()
+        }
+
+        return true
+    }
+
+    // MARK: - APNs Token
+
+    func application(_ application: UIApplication,
+        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        tokenManager.didRegister(deviceToken: deviceToken)
+    }
+
+    func application(_ application: UIApplication,
+        didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        tokenManager.didFailToRegister(error: error)
+    }
+
+    // MARK: - Silent Push
+
+    func application(_ application: UIApplication,
+        didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+        fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        silentRouter.handlePush(payload: userInfo, completionHandler: completionHandler)
+    }
+
+    // MARK: - Visible Push (UNUserNotificationCenterDelegate)
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        visibleRouter.handleResponse(response, completionHandler: completionHandler)
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound, .badge])
+    }
+}`;
+
+const tokenObserverCode = `// Observe token changes and upload to your server
+Task {
+    for await token in appDelegate.tokenManager.tokenStream {
+        if let token {
+            try? await TaskFlowAPI.shared.registerDevice(token: token)
+        }
+    }
+}`;
+---
+
+<DocsLayout title="AppDelegate Setup" section="examples">
+  <h1>AppDelegate Setup</h1>
+  <p class="text-lg text-muted-foreground mt-1 mb-8">A complete AppDelegate wiring all four ForgePush libraries — permission, token, silent push routing, and visible push routing.</p>
+
+  <h2>Handlers</h2>
+  <p>Define your silent and visible push handlers. Keep each handler focused on a single notification type.</p>
+  <CodeBlock code={handlersCode} title="PushHandlers.swift" />
+
+  <h2>AppDelegate</h2>
+  <p>Create the managers and routers as properties, add handlers at launch, and forward the standard delegate callbacks.</p>
+  <CodeBlock code={appDelegateCode} title="AppDelegate.swift" />
+
+  <h2>Token Observation</h2>
+  <p>Start observing the token stream early — for example, from a service or view model — so you upload the token even if it rotates later. The stream emits <code>String?</code>, so handle the <code>nil</code> case if needed.</p>
+  <CodeBlock code={tokenObserverCode} />
+
+  <p class="rounded-lg border border-border bg-muted/50 p-4 text-sm">
+    <strong>Don't forget:</strong> Enable the <strong>Remote notifications</strong> background mode in your target's <em>Signing &amp; Capabilities</em> tab (under Background Modes) for silent pushes to wake the app.
+  </p>
+
+  <PageNavigation
+    prevHref="docs/visible-push"
+    prevLabel="ForgeVisiblePush"
+    nextHref="examples/with-forge-inject"
+    nextLabel="With ForgeInject"
+  />
+</DocsLayout>
