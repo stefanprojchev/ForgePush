@@ -1,189 +1,197 @@
 # ForgePush
 
-Push notification management for iOS — permissions, tokens, silent and visible push routing.
+Push notification management for iOS — permissions, tokens, and routing.
+
+![Swift 6.3+](https://img.shields.io/badge/Swift-6.3+-orange.svg)
+![iOS 18+](https://img.shields.io/badge/iOS-18+-blue.svg)
+![macOS 15+](https://img.shields.io/badge/macOS-15+-blue.svg)
+![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)
+[![Release](https://img.shields.io/github/v/release/stefanprojchev/ForgePush)](https://github.com/stefanprojchev/ForgePush/releases)
+
+📖 **[Full documentation →](https://stefanprojchev.github.io/ForgePush/)**
+
+---
+
+ForgePush splits push notification handling into four focused libraries you can adopt individually. Drop in the ones you need, skip the ones you don't.
+
+## Libraries
+
+| Library | Purpose |
+|---|---|
+| **ForgePushPermission** | Request, check, and observe `UNUserNotificationCenter` authorization. |
+| **ForgePushToken** | `PushTokenManager` bridges APNs delegate callbacks into an async token stream. |
+| **ForgeSilentPush** | `SilentPushRouter` dispatches background pushes to handlers via `TaskGroup`. |
+| **ForgeVisiblePush** | `VisiblePushRouter` dispatches tapped notifications to matching handlers. |
+| **ForgePush** | Umbrella that re-exports all four. |
+
+## Features
+
+- **Handler-based routing** — define small, focused handlers; the router dispatches matching pushes to them concurrently
+- **Result aggregation** — `SilentPushRouter` aggregates handler results using the most-optimistic policy (`.newData > .failed > .noData`)
+- **Async token stream** — subscribe to `tokenStream` for the latest device token, no delegate callback wiring
+- **Dependency-injected observers** — routers take `ConnectivityObserving` and `ProtectedDataObserving` as dependencies, so you can wire [ForgeObservers](https://github.com/stefanprojchev/ForgeObservers) or provide your own
+- **Thread-safe** — `PushTokenManager` state is backed by `LockedState`; continuation lifecycle is deterministic
 
 ## Requirements
 
-- iOS 16+
-- Swift 6.0+
+- **iOS** 18+
+- **macOS** 15+
+- **Swift** 6.3+ (Xcode 26 or later)
 
 ## Installation
 
-### Swift Package Manager
+### Xcode
 
-Add ForgePush to your project via Xcode:
+1. **File → Add Package Dependencies…**
+2. Paste `https://github.com/stefanprojchev/ForgePush.git`
+3. Set rule to **Up to Next Major** from `1.0.0`
 
-1. **File > Add Package Dependencies...**
-2. Enter the repository URL
-3. Select the version rule and add to your target
-
-Or add it directly to your `Package.swift`:
+### Package.swift
 
 ```swift
 dependencies: [
     .package(url: "https://github.com/stefanprojchev/ForgePush.git", from: "1.0.0")
+],
+targets: [
+    .target(
+        name: "YourApp",
+        dependencies: [
+            // All four libraries
+            "ForgePushPermission",
+            "ForgePushToken",
+            "ForgeSilentPush",
+            "ForgeVisiblePush",
+            // — or only what you need —
+        ]
+    )
 ]
-```
-
-Import everything with `ForgePush`, or pick individual modules:
-
-```swift
-import ForgePush          // all modules
-import ForgePushPermission // just permission
-import ForgePushToken      // just token management
-import ForgeSilentPush     // just silent push routing
-import ForgeVisiblePush    // just visible push routing
 ```
 
 ## Quick Start
 
-```swift
-import ForgePush
+### Request permission
 
-// Request permission
+```swift
+import ForgePushPermission
+
 let permission = PushPermission()
 let granted = try await permission.request()
-
-// Register for remote notifications
-let tokenManager = PushTokenManager()
-await tokenManager.registerForRemoteNotifications()
-
-// Route silent pushes
-let silentRouter = SilentPushRouter(
-    connectivity: connectivityObserver,
-    protectedData: protectedDataObserver
-)
-silentRouter.addHandler(DataSyncHandler())
-
-// Route tapped notifications
-let visibleRouter = VisiblePushRouter(
-    connectivity: connectivityObserver,
-    protectedData: protectedDataObserver
-)
-visibleRouter.addHandler(DeepLinkHandler())
-```
-
-## ForgePushPermission
-
-Wraps `UNUserNotificationCenter` for requesting and checking authorization:
-
-```swift
-let permission = PushPermission()
-
-// Request (defaults to alert, badge, sound)
-let granted = try await permission.request()
-let granted = try await permission.request([.alert, .sound, .criticalAlert])
-
-// Check current status
-let status = await permission.status() // .authorized, .denied, .notDetermined, ...
-
-// Open Settings.app notification page
-await permission.openSettings()
-```
-
-## ForgePushToken
-
-Manages the device push token lifecycle. Provides the current token as a hex string and an `AsyncStream` for changes:
-
-```swift
-let tokenManager = PushTokenManager()
-await tokenManager.registerForRemoteNotifications()
-
-// Current token
-if let token = tokenManager.token {
-    await sendToServer(token)
-}
-
-// Stream token changes
-for await token in tokenManager.tokenStream {
-    if let token {
-        await sendToServer(token)
-    }
+if granted {
+    await UIApplication.shared.registerForRemoteNotifications()
 }
 ```
 
-Wire up the AppDelegate callbacks:
+### Observe the APNs token
 
 ```swift
+import ForgePushToken
+
+let tokenManager = PushTokenManager()
+
+// In AppDelegate:
 func application(_ app: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken token: Data) {
     tokenManager.didRegister(deviceToken: token)
 }
 
-func application(_ app: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
-    tokenManager.didFailToRegister(error: error)
+// Anywhere:
+Task {
+    for await token in tokenManager.tokenStream {
+        guard let token else { continue }
+        await uploadTokenToServer(token)
+    }
 }
 ```
 
-## ForgeSilentPush
-
-Routes silent push notifications to registered handlers concurrently. Each handler declares which payloads it matches and returns a `SilentPushResult` (`.newData`, `.noData`, `.failed`). The router aggregates results — most optimistic wins.
+### Route silent pushes
 
 ```swift
-struct DataSyncHandler: SilentPushHandler {
-    let id = "sync.data"
+import ForgeSilentPush
+
+struct SyncHandler: SilentPushHandler {
+    let id = "sync"
 
     func matchesPayload(_ payload: [AnyHashable: Any]) -> Bool {
-        payload["type"] as? String == "sync"
+        (payload["kind"] as? String) == "sync"
     }
 
     func handle(_ payload: [AnyHashable: Any], context: SilentPushContext) async -> SilentPushResult {
-        guard context.connectivity.isConnected else { return .failed }
-        await performSync()
-        return .newData
+        guard context.connectivity.isConnected else { return .noData }
+        let newItems = try? await syncService.fetchNew()
+        return (newItems?.isEmpty == false) ? .newData : .noData
     }
 }
 
-// In AppDelegate
-func application(_ app: UIApplication, didReceiveRemoteNotification payload: [AnyHashable: Any],
-                 fetchCompletionHandler handler: @escaping (UIBackgroundFetchResult) -> Void) {
-    silentRouter.handlePush(payload: payload, completionHandler: handler)
+let router = SilentPushRouter(
+    connectivity: ConnectivityObserver(),
+    protectedData: ProtectedDataObserver()
+)
+router.addHandler(SyncHandler())
+
+// In AppDelegate:
+func application(
+    _ app: UIApplication,
+    didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+    fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+) {
+    router.handlePush(payload: userInfo, completionHandler: completionHandler)
 }
 ```
 
-## ForgeVisiblePush
-
-Routes tapped push notifications to registered handlers concurrently:
+### Route tapped notifications
 
 ```swift
+import ForgeVisiblePush
+
 struct DeepLinkHandler: VisiblePushHandler {
-    let id = "deeplink"
+    let id = "deep-link"
 
     func matches(_ response: UNNotificationResponse) -> Bool {
-        response.notification.request.content.userInfo["deeplink"] != nil
+        response.notification.request.content.userInfo["link"] != nil
     }
 
     func handle(_ response: UNNotificationResponse, context: VisiblePushContext) async {
-        let link = response.notification.request.content.userInfo["deeplink"] as! String
-        await navigate(to: link)
+        if let url = response.notification.request.content.userInfo["link"] as? String {
+            await Router.shared.open(url)
+        }
     }
 }
 
-// In UNUserNotificationCenterDelegate
-func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
-                            withCompletionHandler handler: @escaping () -> Void) {
-    visibleRouter.handleResponse(response, completionHandler: handler)
+let router = VisiblePushRouter(
+    connectivity: ConnectivityObserver(),
+    protectedData: ProtectedDataObserver()
+)
+router.addHandler(DeepLinkHandler())
+
+// In UNUserNotificationCenterDelegate:
+func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    didReceive response: UNNotificationResponse,
+    withCompletionHandler completionHandler: @escaping () -> Void
+) {
+    router.handleResponse(response, completionHandler: completionHandler)
 }
 ```
 
-## Thread Safety
+## Documentation
 
-All types are `Sendable`. `PushTokenManager` protects state with `LockedState`. `SilentPushRouter` and `VisiblePushRouter` protect handler lists with `LockedState` and dispatch work via `TaskGroup`. `PushPermission` is a stateless struct.
+- **[Getting Started](https://stefanprojchev.github.io/ForgePush/docs/getting-started/)**
+- **[Permission](https://stefanprojchev.github.io/ForgePush/docs/permission/)** · **[Token](https://stefanprojchev.github.io/ForgePush/docs/token/)** · **[Silent Push](https://stefanprojchev.github.io/ForgePush/docs/silent-push/)** · **[Visible Push](https://stefanprojchev.github.io/ForgePush/docs/visible-push/)**
 
-## Forge Ecosystem
+## The Forge Family
 
-ForgePush is part of the **Forge** family of Swift packages for iOS:
+ForgePush is part of the **Forge** family of Swift packages for iOS.
 
 | Package | Description |
-|---------|-------------|
-| [ForgeCore](https://github.com/stefanprojchev/ForgeCore) | Thread-safe utilities — `LockedState` and `SendableFileManager` |
-| [ForgeInject](https://github.com/stefanprojchev/ForgeInject) | Lightweight dependency injection with property wrapper |
-| [ForgeObservers](https://github.com/stefanprojchev/ForgeObservers) | Reactive system observers (connectivity, lifecycle, keyboard, and more) |
-| [ForgeStorage](https://github.com/stefanprojchev/ForgeStorage) | Type-safe persistence — key-value, file storage, and Keychain |
-| [ForgeBackgroundTasks](https://github.com/stefanprojchev/ForgeBackgroundTasks) | BGTaskScheduler registration, scheduling, and dispatch |
-| [ForgeLocation](https://github.com/stefanprojchev/ForgeLocation) | Location-based triggers — geofencing, significant changes, visits |
-| **ForgePush** | Push notification management — permissions, tokens, silent and visible routing |
-| [ForgeOrchestrator](https://github.com/stefanprojchev/ForgeOrchestrator) | Sequence, pipeline, and monitor orchestrators for iOS app flows |
+|---|---|
+| [ForgeCore](https://github.com/stefanprojchev/ForgeCore) | Thread-safe primitives for iOS Swift packages. |
+| [ForgeInject](https://github.com/stefanprojchev/ForgeInject) | Dependency injection with constructor and property wrapper support. |
+| [ForgeObservers](https://github.com/stefanprojchev/ForgeObservers) | Reactive system observers — connectivity, lifecycle, keyboard, and more. |
+| [ForgeStorage](https://github.com/stefanprojchev/ForgeStorage) | Type-safe key-value, file, and Keychain storage. |
+| [ForgeOrchestrator](https://github.com/stefanprojchev/ForgeOrchestrator) | Orchestrate app flows — startup gates, data pipelines, and continuous monitors. |
+| **ForgePush** | Push notification management — permissions, tokens, and routing. |
+| [ForgeLocation](https://github.com/stefanprojchev/ForgeLocation) | Location triggers — geofencing, significant changes, and visits. |
+| [ForgeBackgroundTasks](https://github.com/stefanprojchev/ForgeBackgroundTasks) | Background task scheduling and dispatch. |
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
+ForgePush is released under the MIT License. See [LICENSE](LICENSE).
