@@ -8,8 +8,6 @@ Push notification management for iOS — permissions, tokens, and routing.
 ![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)
 [![Release](https://img.shields.io/github/v/release/stefanprojchev/ForgePush)](https://github.com/stefanprojchev/ForgePush/releases)
 
-📖 **[Full documentation →](https://stefanprojchev.github.io/ForgePush/)**
-
 ---
 
 ForgePush splits push notification handling into four focused libraries you can adopt individually. Drop in the ones you need, skip the ones you don't.
@@ -171,11 +169,6 @@ func userNotificationCenter(
     router.handleResponse(response, completionHandler: completionHandler)
 }
 ```
-
-## Documentation
-
-- **[Getting Started](https://stefanprojchev.github.io/ForgePush/docs/getting-started/)**
-- **[Permission](https://stefanprojchev.github.io/ForgePush/docs/permission/)** · **[Token](https://stefanprojchev.github.io/ForgePush/docs/token/)** · **[Silent Push](https://stefanprojchev.github.io/ForgePush/docs/silent-push/)** · **[Visible Push](https://stefanprojchev.github.io/ForgePush/docs/visible-push/)**
 
 ## The Forge Family
 
