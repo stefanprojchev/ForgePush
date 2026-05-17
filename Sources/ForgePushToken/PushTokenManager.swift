@@ -8,18 +8,12 @@ import OSLog
 /// corresponding AppDelegate methods.
 public final class PushTokenManager: Sendable {
 
-    // MARK: - Properties
+    // MARK: - Dependencies
 
     private let logger = Logger(subsystem: "core.push", category: "token")
-
-    private struct State: Sendable {
-        var token: String?
-        var continuations: [UUID: AsyncStream<String?>.Continuation] = [:]
-    }
-
     private let state = LockedState(State())
 
-    // MARK: - Initialization
+    // MARK: - Init
 
     public init() {}
 
@@ -72,5 +66,12 @@ public final class PushTokenManager: Sendable {
         for continuation in continuations {
             continuation.yield(nil)
         }
+    }
+
+    // MARK: - Private
+
+    private struct State: Sendable {
+        var token: String?
+        var continuations: [UUID: AsyncStream<String?>.Continuation] = [:]
     }
 }

@@ -11,14 +11,14 @@ import UIKit
 /// and returns the most optimistic result (`.newData` > `.failed` > `.noData`).
 public final class SilentPushRouter: Sendable {
 
-    // MARK: - Properties
+    // MARK: - Dependencies
 
     private let logger = Logger(subsystem: "core.push", category: "silent")
     private let handlers = LockedState<[any SilentPushHandler]>([])
     private let connectivity: ConnectivityObserving
     private let protectedData: ProtectedDataObserving
 
-    // MARK: - Initialization
+    // MARK: - Init
 
     /// - Parameters:
     ///   - connectivity: Observer for network status.
@@ -111,8 +111,6 @@ public final class SilentPushRouter: Sendable {
 
         return await dispatch(matching, payload: payload, context: context)
     }
-
-    // MARK: - Internal (Test Helpers)
 
     /// IDs of all currently-registered handlers. Used by tests to verify registration state.
     internal var registeredHandlerIDs: [String] {

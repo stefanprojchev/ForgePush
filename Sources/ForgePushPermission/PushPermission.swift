@@ -8,7 +8,7 @@ import UserNotifications
 /// No observation — use ForgeObservers for status tracking.
 public struct PushPermission: Sendable {
 
-    // MARK: - Initialization
+    // MARK: - Init
 
     public init() {}
 

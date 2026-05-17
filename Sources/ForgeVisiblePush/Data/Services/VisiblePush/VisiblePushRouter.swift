@@ -6,14 +6,14 @@ import UserNotifications
 /// Routes tapped push notifications to registered handlers concurrently.
 public final class VisiblePushRouter: Sendable {
 
-    // MARK: - Properties
+    // MARK: - Dependencies
 
     private let logger = Logger(subsystem: "core.push", category: "visible")
     private let handlers = LockedState<[any VisiblePushHandler]>([])
     private let connectivity: ConnectivityObserving
     private let protectedData: ProtectedDataObserving
 
-    // MARK: - Initialization
+    // MARK: - Init
 
     /// - Parameters:
     ///   - connectivity: Observer for network status.
@@ -101,8 +101,6 @@ public final class VisiblePushRouter: Sendable {
 
         await dispatch(matching, response: response, context: context)
     }
-
-    // MARK: - Internal (Test Helpers)
 
     /// IDs of all currently-registered handlers. Used by tests to verify registration state.
     internal var registeredHandlerIDs: [String] {
